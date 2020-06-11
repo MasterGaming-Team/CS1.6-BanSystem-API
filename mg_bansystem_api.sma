@@ -113,7 +113,7 @@ checkBannedPlayer(id)
     
     new lUnbanUnix
 
-    TrieGetCell(trieBanUnbanDate, lAuthId, lUnbanUnix)
+    TrieGetCell(trieBanUnbanUnix, lAuthId, lUnbanUnix)
 
     if(lUnbanUnix < get_systime())
     {
