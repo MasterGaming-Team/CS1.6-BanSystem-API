@@ -1,16 +1,19 @@
 #include <amxmodx>
 #include <amxmisc>
+#include <mg_core>
 #include <sqlx>
 
 #define PLUGIN  "[MG] BanSystem API"
 #define VERSION "1.0"
 #define AUTH    "Vieni"
 
+new SERVERID
 // All works by steamid search
 new Trie:trieBanName
 new Trie:trieBanReason
 new Trie:trieBanAdminName
 new Trie:trieBanAdminId
+new Trie:trieBanType
 new Trie:trieBanDate
 new Trie:trieBanUnbanDate
 new Trie:trieBanUnbanUnix
@@ -28,6 +31,9 @@ public plugin_init()
 
     cvarBanDelay = register_cvar("bansystem_ban_delay", "1.5")
     cvarIpcheckTime = register_cvar("bansystem_ipchecktime(mins)", "4320")
+
+    loadSettings()
+    loadBanList()
 }
 
 public plugin_natives()
@@ -38,6 +44,7 @@ public plugin_natives()
     trieBanReason = TrieCreate()
     trieBanAdminName = TrieCreate()
     trieBanAdminId = TrieCreate()
+    trieBanType = TrieCreate()
     trieBanDate = TrieCreate()
     trieBanUnbanDate = TrieCreate()
     trieBanUnbanUnix = TrieCreate()
@@ -47,6 +54,188 @@ public plugin_natives()
     register_native("mg_ban_user_ban", "native_ban_user_ban")
     register_native("mg_ban_user_addban", "native_ban_user_addban")
     register_native("mg_ban_user_unban", "native_ban_user_unban")
+}
+
+public loadSettings()
+{
+    SERVERID = mg_core_serverid_get()
+}
+
+public loadBanList()
+{
+	formatex(lSqlTxt, charsmax(lSqlTxt), "SELECT * FROM regSystemAccounts;")
+	SQL_ThreadQuery(gSqlRegTuple, "sqlBanLoadHandle", lSqlTxt, data, sizeof(data))
+
+    set_task(240.0, "loadBanList")
+}
+
+public sqlBanLoadHandle(FailState, Handle:Query, error[],errcode, data[], datasize)
+{
+    if(FailState == TQUERY_CONNECT_FAILED || FailState == TQUERY_QUERY_FAILED)
+	{
+		log_amx("%s", error)
+		return
+	}
+
+    static lSqlNamesLoaded, lSqlAuthId
+    static lSqlGlobalName, lSqlGlobalReason, lSqlGlobalAdminName, lSqlGlobalAdminId, lSqlGlobalDate, lSqlGlobalUnbanDate, lSqlGlobalUnbanUnix
+    static lSqlName, lSqlReason, lSqlAdminName, lSqlAdminId, lSqlDate, lSqlUnbanDate, lSqlUnbanUnix
+
+    if(!lSqlNamesLoaded)
+    {
+        new helpTxt[40]
+
+        lSqlAuthId = SQL_FieldNameToNum(Query, "authId")
+
+        helpTxt[0] = EOS
+        formatex(helpTxt, charsmax(helpTxt), "banName%d", SERVERID)
+        lSqlName = SQL_FieldNameToNum(Query, helpTxt)
+
+        helpTxt[0] = EOS
+        formatex(helpTxt, charsmax(helpTxt), "banReason%d", MG_SERVER_GLOBAL)
+        lSqlReason = SQL_FieldNameToNum(Query, helpTxt)
+
+        helpTxt[0] = EOS
+        formatex(helpTxt, charsmax(helpTxt), "banAdminName%d", MG_SERVER_GLOBAL)
+        lSqlAdminName = SQL_FieldNameToNum(Query, helpTxt)
+
+        helpTxt[0] = EOS
+        formatex(helpTxt, charsmax(helpTxt), "banAdminId%d", MG_SERVER_GLOBAL)
+        lSqlAdminId = SQL_FieldNameToNum(Query, helpTxt)
+
+        helpTxt[0] = EOS
+        formatex(helpTxt, charsmax(helpTxt), "banDate%d", MG_SERVER_GLOBAL)
+        lSqlDate = SQL_FieldNameToNum(Query, helpTxt)
+
+        helpTxt[0] = EOS
+        formatex(helpTxt, charsmax(helpTxt), "banUnbanDated%d", MG_SERVER_GLOBAL)
+        lSqlUnbanDate = SQL_FieldNameToNum(Query, helpTxt)
+
+        helpTxt[0] = EOS
+        formatex(helpTxt, charsmax(helpTxt), "banUnbanUnix%d", MG_SERVER_GLOBAL)
+        lSqlGlobalUnbanUnix = SQL_FieldNameToNum(Query, helpTxt)
+
+        helpTxt[0] = EOS
+        formatex(helpTxt, charsmax(helpTxt), "banName%d", SERVERID)
+        lSqlName = SQL_FieldNameToNum(Query, helpTxt)
+
+        helpTxt[0] = EOS
+        formatex(helpTxt, charsmax(helpTxt), "banReason%d", SERVERID)
+        lSqlReason = SQL_FieldNameToNum(Query, helpTxt)
+
+        helpTxt[0] = EOS
+        formatex(helpTxt, charsmax(helpTxt), "banAdminName%d", SERVERID)
+        lSqlAdminName = SQL_FieldNameToNum(Query, helpTxt)
+
+        helpTxt[0] = EOS
+        formatex(helpTxt, charsmax(helpTxt), "banAdminId%d", SERVERID)
+        lSqlAdminId = SQL_FieldNameToNum(Query, helpTxt)
+
+        helpTxt[0] = EOS
+        formatex(helpTxt, charsmax(helpTxt), "banDate%d", SERVERID)
+        lSqlDate = SQL_FieldNameToNum(Query, helpTxt)
+
+        helpTxt[0] = EOS
+        formatex(helpTxt, charsmax(helpTxt), "banUnbanDated%d", SERVERID)
+        lSqlUnbanDate = SQL_FieldNameToNum(Query, helpTxt)
+
+        helpTxt[0] = EOS
+        formatex(helpTxt, charsmax(helpTxt), "banUnbanUnix%d", SERVERID)
+        lSqlUnbanUnix = SQL_FieldNameToNum(Query, helpTxt)
+
+        lSqlNamesLoaded = true
+    }
+
+    new Trie:lTrieAuthIdList
+    new lUnbanUnix
+    new lAuthId[MAX_AUTHID_LENGTH+1], helpTxt[100]
+
+    lTrieAuthIdList = TrieCreate()
+
+    while(SQL_MoreResults(Query))
+    {
+        SQL_ReadResult(Query, lSqlAuthId, lAuthId, charsmax(lAuthId))
+
+        if(TrieKeyExists(lTrieAuthIdList, lAuthId))
+        {
+            log_amx("[LOADBANS] !!WARNING!! More bans found on this authid! (%s)", lAuthId)
+            SQL_NextRow(Query)
+            continue
+        }
+
+        if(TrieKeyExists(trieBanName, lAuthId))
+        {
+            SQL_NextRow(Query)
+            continue
+        }
+
+        if((lUnbanUnix = SQL_ReadResult(Query, lSqlGlobalUnbanUnix)) > get_systime())
+        {
+            helpTxt[0] = EOS
+            SQL_ReadResult(Query, lSqlGlobalName, helpTxt, charsmax(helpTxt))
+            TrieSetString(trieBanName, lAuthId, helpTxt)
+
+            helpTxt[0] = EOS
+            SQL_ReadResult(Query, lSqlGlobalReason, helpTxt, charsmax(helpTxt))
+            TrieSetString(trieBanReason, lAuthId, helpTxt)
+
+            helpTxt[0] = EOS
+            SQL_ReadResult(Query, lAuthId, helpTxt, charsmax(helpTxt))
+            TrieSetString(trieBanAdminName, lAuthId, helpTxt)
+
+            TrieSetCell(trieBanAdminId, lAuthId, SQL_ReadResult(Query, lSqlGlobalAdminId))
+
+            helpTxt[0] = EOS
+            SQL_ReadResult(Query, lSqlGlobalDate, helpTxt, charsmax(helpTxt))
+            TrieSetString(trieBanDate, lAuthId, helpTxt)
+
+            helpTxt[0] = EOS
+            SQL_ReadResult(Query, lSqlGlobalUnbanDate, helpTxt, charsmax(helpTxt))
+            TrieSetString(trieBanUnbanDate, lAuthId, helpTxt)
+
+            TrieSetCell(trieBanUnbanUnix, lAuthId, lUnbanUnix)
+
+            TrieSetCell(lTrieAuthIdList, lAuthId, 1)
+            SQL_NextRow(Query)
+            continue
+        }
+
+        if((lUnbanUnix = SQL_ReadResult(Query, lSqlUnbanUnix)) > get_systime()))
+        {
+            helpTxt[0] = EOS
+            SQL_ReadResult(Query, lSqlName, helpTxt, charsmax(helpTxt))
+            TrieSetString(trieBanName, lAuthId, helpTxt)
+
+            helpTxt[0] = EOS
+            SQL_ReadResult(Query, lSqlReason, helpTxt, charsmax(helpTxt))
+            TrieSetString(trieBanReason, lAuthId, helpTxt)
+
+            helpTxt[0] = EOS
+            SQL_ReadResult(Query, lAuthId, helpTxt, charsmax(helpTxt))
+            TrieSetString(trieBanAdminName, lAuthId, helpTxt)
+
+            TrieSetCell(trieBanAdminId, lAuthId, SQL_ReadResult(Query, lSqlAdminId))
+
+            helpTxt[0] = EOS
+            SQL_ReadResult(Query, lSqlDate, helpTxt, charsmax(helpTxt))
+            TrieSetString(trieBanDate, lAuthId, helpTxt)
+
+            helpTxt[0] = EOS
+            SQL_ReadResult(Query, lSqlUnbanDate, helpTxt, charsmax(helpTxt))
+            TrieSetString(trieBanUnbanDate, lAuthId, helpTxt)
+
+            TrieSetCell(trieBanUnbanUnix, lAuthId, lUnbanUnix)
+
+            TrieSetCell(lTrieAuthIdList, lAuthId, 1)
+            SQL_NextRow(Query)
+            continue
+        }
+
+        TrieSetCell(lTrieAuthIdList, lAuthId, 1)
+        SQL_NextRow(Query)
+    }
+
+    TrieDestroy(lTrieAuthIdList)
 }
 
 public kickPlayerByBan(id)
@@ -123,7 +312,6 @@ checkBannedPlayer(id)
     
     sendPlayerBanMessage(id, lAuthId)
     set_task(get_pcvar_float(cvarBanDelay), "kickPlayerByBan", id)
-    
 }
 
 removeBan(const authId[])
@@ -137,6 +325,7 @@ removeBan(const authId[])
     TrieDeleteKey(trieBanReason, authId)
     TrieDeleteKey(trieBanAdminName, authId)
     TrieDeleteKey(trieBanAdminId, authId)
+    TrieDeleteKey(trieBanType, authId)
     TrieDeleteKey(trieBanDate, authId)
     TrieDeleteKey(trieBanUnbanDate, authId)
     TrieDeleteKey(trieBanUnix, authId)
@@ -168,7 +357,7 @@ sendPlayerBanMessage(id, const authId[] = "none")
     client_cmd(id, "echo %s", id, "BANLINE8")
 }
 
-banPlayer(id, const banReason[], banUnix, type = 0, const adminName[] = "SERVERCMD", adminId = -1)
+banPlayer(id, const banReason[], banUnix, banType, const adminName[] = "SERVERCMD", adminId = -1)
 {
     if(!is_user_connected(id))
         return
@@ -183,19 +372,15 @@ banPlayer(id, const banReason[], banUnix, type = 0, const adminName[] = "SERVERC
     TrieSetString(trieBanName, lAuthId, lName)
     TrieSetString(trieBanReason, lAuthId, banReason)
     TrieSetString(trieBanAdminName, lAuthId, adminName)
-    TrieSetString(trieBanAdminId, lAuthId, adminID)
+    TrieSetCell(trieBanAdminId, lAuthId, adminID)
+    TrieSetCell(trieBanType, lAuthId, banType)
     TrieSetString(trieBanDate, lAuthId, )
     TrieSetString(trieBanUnbanDate, lAuthId, )
-    TrieSetString(trieBanUnix, lAuthId, get_systime()+banUnix)
-    TrieSetString(trieBanIpcheckTime, lAuthId, get_pcvar_num(cvarIpcheckTime))
+    TrieSetCell(trieBanUnix, lAuthId, get_systime()+banUnix)
+    TrieSetCell(trieBanIpcheckTime, lAuthId, get_pcvar_num(cvarIpcheckTime))
 
-    switch(type)
-    {
-        case 0:
-        {
-            
-        }
-    }
+    sendPlayerBanMessage(id, lAuthId)
+    set_task(get_pcvar_float(cvarBanDelay), "kickPlayerByBan", id)
 }
 
 kickPlayer(id, const reason[], type = 0)
