@@ -2,6 +2,7 @@
 #include <amxmisc>
 #include <mg_core>
 #include <sqlx>
+#include <unixtime>
 
 #define PLUGIN  "[MG] BanSystem API"
 #define VERSION "1.0"
@@ -13,7 +14,6 @@ new Trie:trieBanName
 new Trie:trieBanReason
 new Trie:trieBanAdminName
 new Trie:trieBanAdminId
-new Trie:trieBanType
 new Trie:trieBanDate
 new Trie:trieBanUnbanDate
 new Trie:trieBanUnbanUnix
@@ -44,7 +44,6 @@ public plugin_natives()
     trieBanReason = TrieCreate()
     trieBanAdminName = TrieCreate()
     trieBanAdminId = TrieCreate()
-    trieBanType = TrieCreate()
     trieBanDate = TrieCreate()
     trieBanUnbanDate = TrieCreate()
     trieBanUnbanUnix = TrieCreate()
@@ -64,7 +63,7 @@ public loadSettings()
 public loadBanList()
 {
 	formatex(lSqlTxt, charsmax(lSqlTxt), "SELECT * FROM regSystemAccounts;")
-	SQL_ThreadQuery(gSqlRegTuple, "sqlBanLoadHandle", lSqlTxt, data, sizeof(data))
+	SQL_ThreadQuery(gSqlRegTuple, "sqlBanLoadHandle", lSqlTxt)
 
     set_task(240.0, "loadBanList")
 }
@@ -165,8 +164,13 @@ public sqlBanLoadHandle(FailState, Handle:Query, error[],errcode, data[], datasi
 
         if(TrieKeyExists(trieBanName, lAuthId))
         {
-            SQL_NextRow(Query)
-            continue
+            TrieGetCell(trieBanUnbanUnix, lAuthId, lUnbanUnix)
+
+            if(lUnbanUnix == SQL_ReadResult(Query, lSqlGlobalUnbanUnix) || lUnbanUnix == SQL_ReadResult(Query, lSqlUnbanUnix))
+            {
+                SQL_NextRow(Query)
+                continue
+            }
         }
 
         if((lUnbanUnix = SQL_ReadResult(Query, lSqlGlobalUnbanUnix)) > get_systime())
@@ -200,7 +204,7 @@ public sqlBanLoadHandle(FailState, Handle:Query, error[],errcode, data[], datasi
             continue
         }
 
-        if((lUnbanUnix = SQL_ReadResult(Query, lSqlUnbanUnix)) > get_systime()))
+        if((lUnbanUnix = SQL_ReadResult(Query, lSqlUnbanUnix)) > get_systime())
         {
             helpTxt[0] = EOS
             SQL_ReadResult(Query, lSqlName, helpTxt, charsmax(helpTxt))
@@ -240,7 +244,7 @@ public sqlBanLoadHandle(FailState, Handle:Query, error[],errcode, data[], datasi
 
 public kickPlayerByBan(id)
 {
-    kickPlayer(id, "BAN_ALREADYBANNED")
+    kickPlayer(id, "BAN_GOTBANNED")
 }
 
 public sqlGeneralHandle(FailState, Handle:Query, error[],errcode, data[], datasize)
@@ -325,7 +329,6 @@ removeBan(const authId[])
     TrieDeleteKey(trieBanReason, authId)
     TrieDeleteKey(trieBanAdminName, authId)
     TrieDeleteKey(trieBanAdminId, authId)
-    TrieDeleteKey(trieBanType, authId)
     TrieDeleteKey(trieBanDate, authId)
     TrieDeleteKey(trieBanUnbanDate, authId)
     TrieDeleteKey(trieBanUnix, authId)
@@ -338,7 +341,7 @@ sendPlayerBanMessage(id, const authId[] = "none")
         get_user_authid(id, authId, MAX_AUTHID_LENGTH)
     
     new lBanName[MAX_NAME_LENGTH+1], lBanReason[32], lBanAdminName[MAX_NAME_LENGTH+1]
-    new lBanAdminId, lBanDate[20], lUnbanDate[20]
+    new lBanAdminId, lBanDate[25], lUnbanDate[25]
 
     TrieGetString(trieBanName, authId, lBanName, charsmax(lBanName))
     TrieGetString(trieBanReason, authId, lBanReason, charsmax(lBanReason))
@@ -363,19 +366,25 @@ banPlayer(id, const banReason[], banUnix, banType, const adminName[] = "SERVERCM
         return
     
     new lAuthId[MAX_AUTHID_LENGTH+1], lName[MAX_NAME_LENGTH+1]
+    new lYear, lMonth, lDay, lHour, lMinue, lSecond, lDateText[25]
 
     get_user_name(id, lName, charsmax(lName))
     get_user_authid(id, lAuthId, charsmax(lAuthId))
-
-    // Calculation from unix to normal date
 
     TrieSetString(trieBanName, lAuthId, lName)
     TrieSetString(trieBanReason, lAuthId, banReason)
     TrieSetString(trieBanAdminName, lAuthId, adminName)
     TrieSetCell(trieBanAdminId, lAuthId, adminID)
-    TrieSetCell(trieBanType, lAuthId, banType)
-    TrieSetString(trieBanDate, lAuthId, )
-    TrieSetString(trieBanUnbanDate, lAuthId, )
+
+    UnixToTime(get_systime(), lYear, lMonth, lDay, lHour, lMinute, lsecond)
+    formatex(lDateText, charsmax(lDateText), "%d.%d.%d - %d:%d:%d", lYear, lMonth, lDay, lHour, lMinute, lSecond)
+
+    TrieSetString(trieBanDate, lAuthId, lDateText)
+
+    UnixToTime(get_systime()+banUnix, lYear, lMonth, lDay, lHour, lMinute, lsecond)
+    formatex(lDateText, charsmax(lDateText), "%d.%d.%d - %d:%d:%d", lYear, lMonth, lDay, lHour, lMinute, lSecond)
+
+    TrieSetString(trieBanUnbanDate, lAuthId, lDateText)
     TrieSetCell(trieBanUnix, lAuthId, get_systime()+banUnix)
     TrieSetCell(trieBanIpcheckTime, lAuthId, get_pcvar_num(cvarIpcheckTime))
 
